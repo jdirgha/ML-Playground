@@ -6,6 +6,9 @@ A comprehensive web application for machine learning experimentation with built-
 ![Streamlit](https://img.shields.io/badge/streamlit-v1.28.0+-red.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
+<img width="1440" height="816" alt="Playground" src="https://github.com/user-attachments/assets/d44e76d6-fca3-4c93-9ad4-77d4a9021e5e" />
+
+
 ## 🚀 Features
 
 ### 📊 **Data Management**
