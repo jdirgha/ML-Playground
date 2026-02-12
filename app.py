@@ -10,35 +10,20 @@ import plotly.express as px
 from utils.data_handler import DataHandler, load_sample_dataset
 from utils.model_trainer import ModelTrainer
 from utils.explainer import ModelExplainer
+from utils.deployment import generate_fastapi_app, generate_requirements
+from utils.ai_advisor import AIAdvisor
+import utils.ui as ui
 
 # Page configuration
 st.set_page_config(
     page_title="Explainable ML Playground",
-    page_icon="🔬",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Simple font styling
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-    
-    .main {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    
-    h1, h2, h3 {
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
-    }
-    
-    .stMarkdown, .stText {
-        font-family: 'Inter', sans-serif;
-        font-weight: 400;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Apply custom UI styles
+ui.set_custom_style()
 
 def initialize_session_state():
     """Initialize session state variables"""
@@ -78,9 +63,9 @@ def create_bottom_navigation(current_step, show_next=True, next_step=None, next_
     
     with col1:
         if show_back and current_step > 1:
-            if st.button("Back", key="back_bottom_" + str(current_step)):
+            if st.button("← Back", key="back_bottom_" + str(current_step)):
                 st.session_state.step = current_step - 1
-                st.experimental_rerun()
+                st.rerun()
     
     with col2:
         st.write(f"Step {current_step} of 5")
@@ -88,10 +73,10 @@ def create_bottom_navigation(current_step, show_next=True, next_step=None, next_
     with col3:
         if show_next and not next_disabled:
             next_step_num = next_step if next_step else current_step + 1
-            label = next_label if next_label else "Next Step"
+            label = next_label if next_label else "Next Step →"
             if st.button(label, key="next_bottom_" + str(current_step)):
                 st.session_state.step = next_step_num
-                st.experimental_rerun()
+                st.rerun()
         elif next_disabled and show_next:
             disabled_key = "disabled_bottom_" + str(current_step)
             st.button(next_label or "Complete current step first", disabled=True, key=disabled_key)
@@ -102,8 +87,7 @@ def main():
     initialize_session_state()
     
     # Header
-    st.title("🔬 Explainable ML Playground")
-    st.markdown("Build, train and explain machine learning models with interactive insights")
+    ui.create_header()
     
     # Sidebar for navigation
     with st.sidebar:
@@ -111,11 +95,11 @@ def main():
         
         # Step indicators with clickable navigation
         steps = [
-            ("📁 Data Upload", 1),
-            ("🎯 Target Selection", 2), 
-            ("🤖 Model Training", 3),
-            ("🔍 Explanations", 4),
-            ("📊 Analysis", 5)
+            ("1. Data Upload", 1),
+            ("2. Target Selection", 2), 
+            ("3. Model Training", 3),
+            ("4. Explanations", 4),
+            ("5. Analysis & Deployment", 5)
         ]
         
         st.write("*Click on completed steps to navigate*")
@@ -127,17 +111,17 @@ def main():
             # Different styling based on current step and accessibility
             if step_num == st.session_state.step:
                 # Current step - highlighted
-                st.write("**🔄 " + step_name + "**")
+                st.write(f"**→ {step_name}**")
             elif step_accessible:
                 # Completed step - clickable
                 nav_key = "nav_step_" + str(step_num)
-                button_text = "✅ " + step_name
+                button_text = f"✓ {step_name}"
                 if st.button(button_text, key=nav_key):
                     st.session_state.step = step_num
-                    st.experimental_rerun()
+                    st.rerun()
             else:
                 # Future step - disabled
-                st.write("⏳ " + step_name)
+                st.write(f"   {step_name}")
         
         st.markdown("---")
         
@@ -149,7 +133,7 @@ def main():
         st.markdown("---")
         
         # Actions
-        if st.button("🔄 Reset Application", help="Start over with a fresh session"):
+        if st.button("Reset Application", help="Start over with a fresh session"):
             # Reset only necessary keys, keep system keys
             keys_to_reset = [
                 'data_handler', 'model_trainer', 'explainer', 'step', 'data_loaded',
@@ -159,35 +143,74 @@ def main():
             for key in keys_to_reset:
                 if key in st.session_state:
                     del st.session_state[key]
-            st.experimental_rerun()
+            st.rerun()
         
+        # Disable navigation to later steps if previous steps aren't done
+        step1_disable = False
+        step2_disable = not st.session_state.data_loaded
+        step3_disable = not st.session_state.get('preprocessing_complete', False)
+        step4_disable = not st.session_state.model_trained
+        step5_disable = not st.session_state.model_trained
+        
+        selected_page = st.radio(
+            "Go to:",
+            ["1. Upload Data", "2. Target & Analysis", "3. Model Training", "4. Explanations", "5. Deployment & Comparison"],
+            index=st.session_state.step - 1,
+            key="nav_radio"
+        )
+        
+        # Update session state based on selection (if allowed)
+        if selected_page == "1. Upload Data":
+            st.session_state.step = 1
+        elif selected_page == "2. Target & Analysis":
+            if step2_disable:
+                st.warning("Please upload data first.")
+                st.session_state.step = 1
+            else:
+                st.session_state.step = 2
+        elif selected_page == "3. Model Training":
+            if step3_disable:
+                st.warning("Please select target and preprocess data first.")
+                st.session_state.step = 2
+            else:
+                st.session_state.step = 3
+        elif selected_page == "4. Explanations":
+            if step4_disable:
+                st.warning("Please train a model first.")
+                st.session_state.step = 3
+            else:
+                st.session_state.step = 4
+        elif selected_page == "5. Deployment & Comparison":
+             if step5_disable:
+                st.warning("Please train a model first.")
+                st.session_state.step = 3
+             else:
+                st.session_state.step = 5
+
+        # Show status
+        st.markdown("---")
+        st.markdown("**Status:**")
+        if st.session_state.data_loaded:
+            st.success(f"✅ Data: {st.session_state.data_handler.filename}")
         if st.session_state.model_trained:
-            if st.button("📥 Download Model"):
-                model_data = st.session_state.model_trainer.save_model("model.pkl")
-                if model_data:
-                    st.download_button(
-                        label="💾 Download Model File",
-                        data=model_data,
-                        file_name="trained_model.pkl",
-                        mime="application/octet-stream"
-                    )
-    
-    # Main content area
+            st.success(f"✅ Model: {st.session_state.model_trainer.model_name}")
+
+    # Render Content
     if st.session_state.step == 1:
-        step_1_data_upload()
+        step_1_upload()
     elif st.session_state.step == 2:
-        step_2_target_selection()
+        step_2_target()
     elif st.session_state.step == 3:
-        step_3_model_training()
+        step_3_training()
     elif st.session_state.step == 4:
         step_4_explanations()
     elif st.session_state.step == 5:
         step_5_analysis()
 
 
-def step_1_data_upload():
+def step_1_upload():
     """Step 1: Data Upload"""
-    st.header("📁 Step 1: Data Upload")
+    ui.create_step_header(1, "Data Upload", "Upload your dataset")
     
     # Option to use sample data or upload
     col1, col2 = st.columns(2)
@@ -203,7 +226,7 @@ def step_1_data_upload():
         if uploaded_file is not None:
             if st.session_state.data_handler.load_data(uploaded_file):
                 st.session_state.data_loaded = True
-                st.success("✅ Data loaded successfully!")
+                st.success("Data loaded successfully!")
     
     with col2:
         st.subheader("Or Try Sample Datasets")
@@ -225,8 +248,9 @@ def step_1_data_upload():
             sample_data = load_sample_dataset(selected_sample)
             if sample_data is not None:
                 st.session_state.data_handler.data = sample_data
+                st.session_state.data_handler.filename = f"Sample: {selected_sample}"
                 st.session_state.data_loaded = True
-                st.success("✅ Sample data loaded successfully!")
+                st.success("Sample data loaded successfully!")
     
     # Display data preview if loaded
     if st.session_state.data_loaded:
@@ -241,9 +265,9 @@ def step_1_data_upload():
     )
 
 
-def step_2_target_selection():
+def step_2_target():
     """Step 2: Target and Feature Selection"""
-    st.header("🎯 Step 2: Target Variable Selection")
+    ui.create_step_header(2, "Target Selection", "Select the target column you want to predict.")
     
     if not st.session_state.data_loaded:
         st.error("Please upload data first!")
@@ -252,12 +276,12 @@ def step_2_target_selection():
     
     # Check if preprocessing is already complete
     if st.session_state.get('preprocessing_complete', False):
-        st.success("✅ Data preprocessing completed!")
+        st.success("Data preprocessing completed!")
         
         # Show summary
         summary = st.session_state.data_handler.get_preprocessing_summary()
         if summary:
-            st.subheader("📋 Preprocessing Summary")
+            st.subheader("Preprocessing Summary")
             
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -279,10 +303,11 @@ def step_2_target_selection():
         return
     
     # Target selection interface
-    if st.session_state.data_handler.select_target_and_features():
-        
+    target_selected = st.session_state.data_handler.select_target_and_features()
+    
+    if target_selected:
         # Data preprocessing
-        st.subheader("🔧 Data Preprocessing")
+        st.subheader("Data Preprocessing")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -290,15 +315,37 @@ def step_2_target_selection():
         with col2:
             random_state = st.number_input("Random seed", 1, 100, 42)
         
-        if st.button("🔄 Preprocess Data", key="preprocess_data"):
-            if st.session_state.data_handler.preprocess_data(test_size, random_state):
-                
-                # Mark preprocessing as complete
-                st.session_state.preprocessing_complete = True
-                
-                st.success("✅ Data preprocessing completed!")
-                st.experimental_rerun()
+        if st.button("Preprocess Data", key="preprocess_data", type="primary"):
+            with st.spinner("Preprocessing data..."):
+                if st.session_state.data_handler.preprocess_data(test_size, random_state):
+                    # Mark preprocessing as complete
+                    st.session_state.preprocessing_complete = True
+                    st.success("Data preprocessing completed!")
+                    st.rerun()
     
+    
+            # AI Advisor Recommendations
+            st.markdown("---")
+            with st.expander("🤖 AI Data Analyst Insights", expanded=True):
+                advisor = AIAdvisor(st.session_state.data_handler)
+                
+                # 1. Data Quality Checks
+                st.subheader("1. Data Quality Analysis")
+                alerts = advisor.analyze_data_quality()
+                for alert in alerts:
+                    st.write(alert)
+                    
+                # 2. Model Recommendation
+                st.subheader("2. Model Recommendation")
+                model_name, reason = advisor.suggest_model()
+                st.info(f"💡 **Recommended Model:** {model_name}\n\n**Reason:** {reason}")
+                
+                # 3. Feature Engineering Tips
+                st.subheader("3. Feature Engineering Tips")
+                tips = advisor.get_feature_advice()
+                for tip in tips:
+                    st.write(tip)
+
     # Bottom navigation
     create_bottom_navigation(
         current_step=2,
@@ -307,9 +354,9 @@ def step_2_target_selection():
     )
 
 
-def step_3_model_training():
+def step_3_training():
     """Step 3: Model Training"""
-    st.header("🤖 Step 3: Model Training")
+    ui.create_step_header(3, "Model Training", "Train a Machine Learning model on your data.")
     
     # Check if data is preprocessed
     if not st.session_state.get('preprocessing_complete', False) or st.session_state.data_handler.X_train is None:
@@ -319,7 +366,7 @@ def step_3_model_training():
     
     # Check if model training is already complete
     if st.session_state.get('model_training_complete', False) and st.session_state.model_trained:
-        st.success("✅ Model training completed!")
+        st.success("Model training completed!")
         
         # Display metrics
         st.session_state.model_trainer.display_metrics()
@@ -349,7 +396,7 @@ def step_3_model_training():
     # Model selection
     if st.session_state.model_trainer.select_model():
         
-        st.subheader("⚙️ Training Configuration")
+        st.subheader("Training Configuration")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -358,7 +405,7 @@ def step_3_model_training():
             cv_folds = st.number_input("CV Folds", 3, 10, 5) if perform_cv else 5
         
         # Train model button
-        if st.button("🚀 Train Model"):
+        if st.button("Train Model", type="primary"):
             
             # Cross-validation first
             if perform_cv:
@@ -382,7 +429,7 @@ def step_3_model_training():
             
             if success:
                 st.session_state.model_trained = True
-                st.success("✅ Model trained successfully!")
+                st.success("Model trained successfully!")
                 
                 # Display metrics
                 st.session_state.model_trainer.display_metrics()
@@ -411,7 +458,7 @@ def step_3_model_training():
 
 def step_4_explanations():
     """Step 4: Model Explanations"""
-    st.header("🔍 Step 4: Model Explanations")
+    ui.create_step_header(4, "Explanations", "Understand model predictions using SHAP (Explainable AI).")
     
     if not st.session_state.model_trained or not st.session_state.get('model_training_complete', False):
         st.error("Please train a model first!")
@@ -431,21 +478,22 @@ def step_4_explanations():
     
     # Initialize and calculate SHAP values
     if not st.session_state.explanations_ready:
-        if st.button("🧠 Generate Explanations"):
-            if st.session_state.explainer.initialize_explainer():
-                if st.session_state.explainer.calculate_shap_values():
-                    st.session_state.explanations_ready = True
-                    st.success("✅ Explanations generated successfully!")
-                    st.experimental_rerun()
+        if st.button("Generate Explanations", type="primary"):
+            with st.spinner("Generating SHAP explanations..."):
+                if st.session_state.explainer.initialize_explainer():
+                    if st.session_state.explainer.calculate_shap_values():
+                        st.session_state.explanations_ready = True
+                        st.success("Explanations generated successfully!")
+                        st.rerun()
     
     if st.session_state.explanations_ready:
         
         # Explanation tabs
         tab1, tab2, tab3, tab4 = st.tabs([
-            "🌍 Global Explanations", 
-            "🔎 Individual Predictions", 
-            "📊 Feature Dependencies",
-            "🎯 Model Insights"
+            "Global Explanations", 
+            "Individual Predictions", 
+            "Feature Dependencies",
+            "Model Insights"
         ])
         
         with tab1:
@@ -471,7 +519,7 @@ def step_4_explanations():
 
 def step_5_analysis():
     """Step 5: Advanced Analysis and Export"""
-    st.header("📊 Step 5: Advanced Analysis & Export")
+    ui.create_step_header(5, "Deployment & Analysis", "Analyze performance, compare models, and deploy as API.")
     
     if not st.session_state.explanations_ready:
         st.error("Please generate explanations first!")
@@ -479,7 +527,7 @@ def step_5_analysis():
         return
     
     # Analysis tabs
-    tab1, tab2, tab3 = st.tabs(["📈 Model Analysis", "📥 Export Results", "🔧 Model Comparison"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Model Analysis", "Export Results", "🚀 One-Click Deployment", "Model Comparison"])
     
     with tab1:
         st.subheader("Comprehensive Model Analysis")
@@ -524,12 +572,12 @@ def step_5_analysis():
         
         with col1:
             # Export explanations
-            if st.button("📊 Export SHAP Explanations"):
+            if st.button("Export SHAP Explanations"):
                 explanations_df = st.session_state.explainer.export_explanations()
                 if explanations_df is not None:
                     csv = explanations_df.to_csv(index=False)
                     st.download_button(
-                        label="📥 Download Explanations CSV",
+                        label="Download Explanations CSV",
                         data=csv,
                         file_name="shap_explanations.csv",
                         mime="text/csv"
@@ -537,39 +585,169 @@ def step_5_analysis():
         
         with col2:
             # Export predictions
-            if st.button("🎯 Export Predictions"):
+            if st.button("Export Predictions"):
                 predictions_df = pd.DataFrame({
                     'prediction': st.session_state.model_trainer.predictions,
                     'actual': st.session_state.data_handler.y_test
                 })
                 csv = predictions_df.to_csv(index=False)
                 st.download_button(
-                    label="📥 Download Predictions CSV",
+                    label="Download Predictions CSV",
                     data=csv,
                     file_name="model_predictions.csv",
                     mime="text/csv"
                 )
         
         # Generate report
-        if st.button("📋 Generate Analysis Report"):
+        if st.button("Generate Analysis Report"):
             report = generate_analysis_report()
             st.download_button(
-                label="📥 Download Analysis Report",
+                label="Download Analysis Report",
                 data=report,
                 file_name="ml_analysis_report.txt",
                 mime="text/plain"
             )
     
+
+    
     with tab3:
-        st.subheader("Model Comparison")
-        st.info("💡 Feature coming soon: Compare multiple models side by side!")
+        st.subheader("🚀 Deploy Your Model")
+        st.markdown("Generate production-ready code to serve your model as an API.")
         
-        # Placeholder for future model comparison features
-        st.write("**Planned Features:**")
-        st.write("• Train multiple models simultaneously")
-        st.write("• Compare performance metrics")
-        st.write("• Compare explanation differences")
-        st.write("• Model ensemble capabilities")
+        if st.session_state.model_trained:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.info("👇 **Step 1: Download Model**")
+                # Reuse the save logic
+                model_data = st.session_state.model_trainer.save_model("model.pkl")
+                st.download_button(
+                    label="Download Model File (model.pkl)",
+                    data=model_data,
+                    file_name="model.pkl",
+                    mime="application/octet-stream",
+                    key="deploy_model_dl"
+                )
+                
+            with col2:
+                st.info("👇 **Step 2: Download API Code**")
+                
+                # Generate API code
+                feature_names = st.session_state.data_handler.get_preprocessing_summary()['feature_names']
+                api_code = generate_fastapi_app(
+                    st.session_state.model_trainer.model_name,
+                    feature_names,
+                    st.session_state.data_handler.task_type
+                )
+                
+                st.download_button(
+                    label="Download API Code (fastapi_app.py)",
+                    data=api_code,
+                    file_name="fastapi_app.py",
+                    mime="text/x-python",
+                    key="deploy_api_dl"
+                )
+                
+                # Requirements
+                reqs = generate_requirements()
+                st.download_button(
+                    label="Download requirements.txt",
+                    data=reqs,
+                    file_name="requirements.txt",
+                    mime="text/plain",
+                    key="deploy_reqs_dl"
+                )
+                
+            st.markdown("---")
+            st.subheader("How to run your API locally:")
+            st.code("""
+# 1. Install requirements
+pip install -r requirements.txt
+
+# 2. Run the server
+python fastapi_app.py
+
+# 3. Test the API
+# Open http://localhost:8000/docs in your browser
+            """, language="bash")
+            
+        else:
+            st.warning("Please train a model first to generate deployment code.")
+
+    with tab4:
+        st.subheader("⚔️ Model Comparison & Ensemble")
+        
+        if st.session_state.model_trained:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.write("Compare different algorithms to find the best performer for your data.")
+                
+                if st.button("🚀 Train & Compare All Models"):
+                    with st.spinner("Training all models... This might take a moment."):
+                        results = st.session_state.model_trainer.train_all_models(
+                            st.session_state.data_handler.X_train,
+                            st.session_state.data_handler.y_train,
+                            st.session_state.data_handler.X_test,
+                            st.session_state.data_handler.y_test
+                        )
+                        st.success("Comparison complete!")
+                
+                # Display results if available
+                if hasattr(st.session_state.model_trainer, 'comparison_results') and \
+                   isinstance(st.session_state.model_trainer.comparison_results, pd.DataFrame):
+                    
+                    results_df = st.session_state.model_trainer.comparison_results
+                    
+                    # Formatting for display (hide model object)
+                    display_df = results_df.drop(columns=['model_obj'])
+                    
+                    st.write("### 🏆 Leaderboard")
+                    try:
+                        st.dataframe(display_df.style.highlight_max(axis=0, color='lightgreen'), use_container_width=True)
+                    except Exception:
+                        st.dataframe(display_df, use_container_width=True)
+                    
+                    # Bar chart of performance
+                    metric_col = display_df.columns[1] # Accuracy or R2
+                    fig = px.bar(
+                        display_df, 
+                        x='Model', 
+                        y=metric_col, 
+                        color=metric_col,
+                        title=f"Model Performance ({metric_col})",
+                        color_continuous_scale='Viridis'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.info("ℹ️ **Ensemble Learning** combine multiple models to improve accuracy and reduce overfitting.")
+                
+                if hasattr(st.session_state.model_trainer, 'comparison_results') and \
+                   isinstance(st.session_state.model_trainer.comparison_results, pd.DataFrame):
+                    
+                    st.subheader("🤝 Create Ensemble")
+                    top_n = st.slider("Combine Top N Models", 2, len(st.session_state.model_trainer.comparison_results), 3)
+                    
+                    if st.button("Build Voting Ensemble"):
+                        with st.spinner("Building ensemble model..."):
+                            ensemble_res = st.session_state.model_trainer.create_ensemble(
+                                st.session_state.data_handler.X_train,
+                                st.session_state.data_handler.y_train,
+                                st.session_state.data_handler.X_test,
+                                st.session_state.data_handler.y_test,
+                                top_n=top_n
+                            )
+                            
+                            if ensemble_res:
+                                st.balloons()
+                                st.success(f"Ensemble Built Successfully!")
+                                st.metric(f"Ensemble {ensemble_res['metric']}", f"{ensemble_res['score']:.4f}")
+                                st.write("**Models Combined:**")
+                                for m in ensemble_res['models_used']:
+                                    st.write(f"- {m}")
+        else:
+            st.warning("Please train a base model first in Step 3 to initialize the process.")
     
     # Bottom navigation (final step)
     create_bottom_navigation(
@@ -588,23 +766,23 @@ def generate_analysis_report():
     if st.session_state.data_loaded:
         summary = st.session_state.data_handler.get_preprocessing_summary()
         report_content.append("DATASET INFORMATION:\n")
-        report_content.append(f"• Task Type: {summary['task_type']}\n")
-        report_content.append(f"• Target Column: {summary['target_column']}\n")
-        report_content.append(f"• Total Features: {summary['n_features']}\n")
-        report_content.append(f"• Training Samples: {summary['train_size']}\n")
-        report_content.append(f"• Test Samples: {summary['test_size']}\n\n")
+        report_content.append(f"- Task Type: {summary['task_type']}\n")
+        report_content.append(f"- Target Column: {summary['target_column']}\n")
+        report_content.append(f"- Total Features: {summary['n_features']}\n")
+        report_content.append(f"- Training Samples: {summary['train_size']}\n")
+        report_content.append(f"- Test Samples: {summary['test_size']}\n\n")
     
     # Model information
     if st.session_state.model_trained:
         report_content.append("MODEL INFORMATION:\n")
-        report_content.append(f"• Model Type: {st.session_state.model_trainer.model_name}\n")
-        report_content.append(f"• Task: {st.session_state.model_trainer.task_type}\n\n")
+        report_content.append(f"- Model Type: {st.session_state.model_trainer.model_name}\n")
+        report_content.append(f"- Task: {st.session_state.model_trainer.task_type}\n\n")
         
         # Performance metrics
         report_content.append("PERFORMANCE METRICS:\n")
         for metric, value in st.session_state.model_trainer.metrics.items():
             if metric != 'confusion_matrix':
-                report_content.append(f"• {metric.replace('_', ' ').title()}: {value:.4f}\n")
+                report_content.append(f"- {metric.replace('_', ' ').title()}: {value:.4f}\n")
         report_content.append("\n")
     
     # Feature importance (if available)
@@ -614,7 +792,7 @@ def generate_analysis_report():
         if importance_df is not None:
             report_content.append("TOP 10 FEATURE IMPORTANCE:\n")
             for _, row in importance_df.head(10).iterrows():
-                report_content.append(f"• {row['feature']}: {row['importance']:.4f}\n")
+                report_content.append(f"- {row['feature']}: {row['importance']:.4f}\n")
             report_content.append("\n")
     
     report_content.append("=== END OF REPORT ===")

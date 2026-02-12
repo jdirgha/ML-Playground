@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, VotingClassifier, VotingRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.svm import SVC, SVR
 from sklearn.metrics import (
@@ -29,6 +29,8 @@ class ModelTrainer:
         self.predictions = None
         self.probabilities = None
         self.metrics = {}
+        self.comparison_results = {}
+        self.ensemble_model = None
         
     def get_available_models(self):
         """Get list of available models based on task type"""
@@ -160,8 +162,14 @@ class ModelTrainer:
             aspect="auto",
             title="Confusion Matrix",
             labels=dict(x="Predicted", y="Actual"),
+            template="plotly_dark",
             x=class_names if class_names else [f"Class {i}" for i in range(cm.shape[1])],
             y=class_names if class_names else [f"Class {i}" for i in range(cm.shape[0])]
+        )
+        
+        fig.update_layout(
+            xaxis=dict(tickfont=dict(color='#ECECF1')),
+            yaxis=dict(tickfont=dict(color='#ECECF1'))
         )
         
         st.plotly_chart(fig, use_container_width=True)
@@ -197,7 +205,10 @@ class ModelTrainer:
             title="Predictions vs Actual Values",
             xaxis_title="Actual Values",
             yaxis_title="Predicted Values",
-            showlegend=True
+            template="plotly_dark",
+            showlegend=True,
+            xaxis=dict(tickfont=dict(color='#ECECF1')),
+            yaxis=dict(tickfont=dict(color='#ECECF1'))
         )
         
         st.plotly_chart(fig, use_container_width=True)
@@ -242,13 +253,14 @@ class ModelTrainer:
         fig.update_layout(
             title="Residual Analysis",
             showlegend=False,
+            template="plotly_dark",
             height=400
         )
         
-        fig.update_xaxes(title_text="Predicted Values", row=1, col=1)
-        fig.update_yaxes(title_text="Residuals", row=1, col=1)
-        fig.update_xaxes(title_text="Residuals", row=1, col=2)
-        fig.update_yaxes(title_text="Count", row=1, col=2)
+        fig.update_xaxes(title_text="Predicted Values", row=1, col=1, tickfont=dict(color='#ECECF1'))
+        fig.update_yaxes(title_text="Residuals", row=1, col=1, tickfont=dict(color='#ECECF1'))
+        fig.update_xaxes(title_text="Residuals", row=1, col=2, tickfont=dict(color='#ECECF1'))
+        fig.update_yaxes(title_text="Count", row=1, col=2, tickfont=dict(color='#ECECF1'))
         
         st.plotly_chart(fig, use_container_width=True)
     
@@ -281,10 +293,15 @@ class ModelTrainer:
             y='feature',
             orientation='h',
             title=f"Top {min(top_n, len(top_features))} Feature Importance",
+            template="plotly_dark",
             labels={'importance': 'Importance Score', 'feature': 'Features'}
         )
         
-        fig.update_layout(height=max(400, len(top_features) * 25))
+        fig.update_layout(
+            height=max(400, len(top_features) * 25),
+            xaxis=dict(tickfont=dict(color='#ECECF1')),
+            yaxis=dict(tickfont=dict(color='#ECECF1'))
+        )
         st.plotly_chart(fig, use_container_width=True)
         
         return importance_df
@@ -335,7 +352,10 @@ class ModelTrainer:
             fig.update_layout(
                 title="Cross-Validation Score Distribution",
                 yaxis_title=cv_results['scoring_metric'].title(),
-                height=300
+                template="plotly_dark",
+                height=300,
+                xaxis=dict(tickfont=dict(color='#ECECF1')),
+                yaxis=dict(tickfont=dict(color='#ECECF1'))
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -387,3 +407,85 @@ class ModelTrainer:
             result['probabilities'] = probabilities
         
         return result 
+    
+    def train_all_models(self, X_train, y_train, X_test, y_test):
+        """Train all available models and compare performance"""
+        available_models = self.get_available_models()
+        results = []
+        
+        progress_bar = st.progress(0)
+        
+        for i, (name, model) in enumerate(available_models.items()):
+            try:
+                # Train model
+                model.fit(X_train, y_train)
+                preds = model.predict(X_test)
+                
+                # Calculate metric based on task
+                if self.task_type == "Classification":
+                    score = accuracy_score(y_test, preds)
+                    metric_name = "Accuracy"
+                else:
+                    score = r2_score(y_test, preds)
+                    metric_name = "R2 Score"
+                
+                results.append({
+                    "Model": name,
+                    metric_name: score,
+                    "model_obj": model 
+                })
+                
+            except Exception as e:
+                st.error(f"Error training {name}: {str(e)}")
+            
+            # Update progress
+            progress_bar.progress((i + 1) / len(available_models))
+            
+        progress_bar.empty()
+        
+        # Convert to DataFrame and sort
+        results_df = pd.DataFrame(results).sort_values(by=metric_name, ascending=False)
+        self.comparison_results = results_df
+        
+        return results_df
+        
+    def create_ensemble(self, X_train, y_train, X_test, y_test, top_n=3):
+        """Create a voting ensemble from top models"""
+        if self.comparison_results is None or self.comparison_results.empty:
+            return None
+            
+        # Select top N models
+        top_models_df = self.comparison_results.head(top_n)
+        estimators = []
+        
+        for _, row in top_models_df.iterrows():
+            estimators.append((row['Model'], row['model_obj']))
+            
+        # Create ensemble
+        try:
+            if self.task_type == "Classification":
+                self.ensemble_model = VotingClassifier(estimators=estimators, voting='soft')
+            else:
+                self.ensemble_model = VotingRegressor(estimators=estimators)
+                
+            self.ensemble_model.fit(X_train, y_train)
+            
+            # Evaluate ensemble
+            preds = self.ensemble_model.predict(X_test)
+            
+            if self.task_type == "Classification":
+                ensemble_score = accuracy_score(y_test, preds)
+                metric_name = "Accuracy"
+            else:
+                ensemble_score = r2_score(y_test, preds)
+                metric_name = "R2 Score"
+                
+            return {
+                "score": ensemble_score,
+                "metric": metric_name,
+                "models_used": [name for name, _ in estimators]
+            }
+            
+        except Exception as e:
+            st.error(f"Error creating ensemble: {str(e)}")
+            return None 

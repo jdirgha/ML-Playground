@@ -9,6 +9,7 @@ import io
 class DataHandler:
     def __init__(self):
         self.data = None
+        self.filename = None
         self.target_column = None
         self.feature_columns = None
         self.task_type = None
@@ -20,19 +21,38 @@ class DataHandler:
         self.y_test = None
     
     def load_data(self, uploaded_file):
-        """Load CSV data from uploaded file"""
+        """Load CSV or Excel data with robust encoding handling"""
         try:
             if uploaded_file.name.endswith('.csv'):
-                self.data = pd.read_csv(uploaded_file)
+                # Robust CSV reading with multiple encoding fallbacks
+                encodings = ['utf-8', 'latin1', 'iso-8859-1', 'cp1252', 'utf-16']
+                success = False
+                
+                for enc in encodings:
+                    try:
+                        # Reset file pointer to beginning for each attempt
+                        uploaded_file.seek(0)
+                        self.data = pd.read_csv(uploaded_file, encoding=enc)
+                        self.filename = uploaded_file.name
+                        success = True
+                        break
+                    except (UnicodeDecodeError, pd.errors.ParserError):
+                        continue
+                
+                if not success:
+                    st.error("Could not decode CSV file. Please ensure it's a valid CSV with standard encoding.")
+                    return False
+                    
             elif uploaded_file.name.endswith(('.xlsx', '.xls')):
                 self.data = pd.read_excel(uploaded_file)
+                self.filename = uploaded_file.name
             else:
                 st.error("Please upload a CSV or Excel file")
                 return False
             
             # Basic validation
-            if self.data.empty:
-                st.error("The uploaded file is empty")
+            if self.data is None or self.data.empty:
+                st.error("The uploaded file is empty or could not be read.")
                 return False
             
             if len(self.data.columns) < 2:
@@ -115,17 +135,38 @@ class DataHandler:
                     st.write("By Class:")
                     st.dataframe(survival_by_class.astype(str))
             else:
-                st.write("**Missing Values:**")
-                missing_df = pd.DataFrame({
-                    'Column': self.data.columns,
-                    'Missing': self.data.isnull().sum().values,
-                    'Percentage': (self.data.isnull().sum() / len(self.data) * 100).round(2)
-                })
-                missing_filtered = missing_df[missing_df['Missing'] > 0]
-                if not missing_filtered.empty:
-                    st.dataframe(missing_filtered.astype(str))
-                else:
-                    st.write("No missing values found!")
+                pass  # Placeholder for non-Titanic datasets
+            
+            # Data Overview Metrics (for all datasets)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Rows", self.data.shape[0])
+            with col2:
+                st.metric("Columns", self.data.shape[1])
+            with col3:
+                missing_total = self.data.isnull().sum().sum()
+                st.metric("Missing Values", missing_total, delta_color="inverse")
+            
+            # Missing Values Analysis
+            if missing_total > 0:
+                with st.expander("⚠️ Missing Value Details"):
+                    missing_df = pd.DataFrame({
+                        'Column': self.data.columns,
+                        'Missing Count': self.data.isnull().sum().values,
+                        'Percentage': (self.data.isnull().sum() / len(self.data) * 100)
+                    })
+                    missing_filtered = missing_df[missing_df['Missing Count'] > 0].sort_values('Missing Count', ascending=False)
+                    
+                    try:
+                        st.dataframe(missing_filtered.style.format({'Percentage': "{:.1f}%"}), use_container_width=True)
+                    except Exception:
+                        # Fallback if jinja2 is missing/outdated
+                        st.dataframe(missing_filtered, use_container_width=True)
+            
+            # Data Types
+            with st.expander("📋 Column Types"):
+                 dtype_counts = self.data.dtypes.astype(str).value_counts()
+                 st.bar_chart(dtype_counts)
     
     def select_target_and_features(self):
         """Interface for selecting target column and task type"""
@@ -165,6 +206,10 @@ class DataHandler:
                         st.write(f"• **Survival rate**: {(value_counts.get(1, 0)/len(self.data)*100):.1f}%")
                 else:
                     st.write(self.data[self.target_column].describe())
+                    
+                # High cardinality warning for categorical targets
+                if self.data[self.target_column].dtype == 'object' and self.data[self.target_column].nunique() > 100:
+                    st.warning("⚠️ **High Cardinality Target**: You selected a column with many unique text values (like names or IDs). This is usually not suitable for prediction. Consider selecting a different target column.")
             
             # Task type selection
             st.subheader("📋 Select Prediction Type")
@@ -207,6 +252,37 @@ class DataHandler:
             X = self.data[self.feature_columns].copy()
             y = self.data[self.target_column].copy()
             
+            # --- ROBUSTNESS IMPROVEMENTS ---
+            
+            # 1. Drop features with single value (zero variance)
+            for col in X.columns:
+                if X[col].nunique() <= 1:
+                    X.drop(columns=[col], inplace=True)
+                    if col in self.feature_columns:
+                        self.feature_columns.remove(col)
+                        
+            # 2. Identify and drop high-cardinality non-numeric columns (likely IDs)
+            # Threshold: if unique values > 90% of rows and type is object
+            threshold_ratio = 0.9
+            for col in X.select_dtypes(include=['object']).columns:
+                if X[col].nunique() / len(X) > threshold_ratio:
+                    X.drop(columns=[col], inplace=True)
+                    if col in self.feature_columns:
+                        self.feature_columns.remove(col)
+            
+            # 3. Handle Date/Time columns (simple approach: drop them for now)
+            # In a real app, we would extract year/month/day
+            for col in X.columns:
+                if pd.api.types.is_datetime64_any_dtype(X[col]):
+                    X.drop(columns=[col], inplace=True)
+                    if col in self.feature_columns:
+                        self.feature_columns.remove(col)
+
+            # Update feature columns list after dropping
+            self.feature_columns = list(X.columns)
+            
+            # -------------------------------
+            
             # Handle missing values
             # For numeric columns, fill with median
             numeric_columns = X.select_dtypes(include=[np.number]).columns
@@ -225,11 +301,18 @@ class DataHandler:
                 self.label_encoders[col] = le
             
             # Handle target variable
-            if self.task_type == "Classification":
-                if y.dtype == 'object' or y.nunique() <= 10:
-                    le_target = LabelEncoder()
-                    y = le_target.fit_transform(y.astype(str))
-                    self.label_encoders['target'] = le_target
+            # --- FORCED ENCODING FIX ---
+            if y.dtype == 'object':
+                le_target = LabelEncoder()
+                y = le_target.fit_transform(y.astype(str))
+                self.label_encoders['target'] = le_target
+                st.info(f"ℹ️ Encoded target column '{self.target_column}' into numeric values.")
+            elif self.task_type == "Classification" and y.nunique() <= 10:
+                # Still encode if it's classification with few numbers to ensure 0, 1, 2... format
+                le_target = LabelEncoder()
+                y = le_target.fit_transform(y)
+                self.label_encoders['target'] = le_target
+            # ---------------------------
             
             # Split the data
             self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(

@@ -12,7 +12,15 @@ import plotly.figure_factory as ff
 import io
 import base64
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LogisticRegression, LinearRegression
+# Set global Matplotlib style for dark theme
+plt.style.use('dark_background')
+plt.rcParams.update({
+    'text.color': '#ECECF1',
+    'axes.labelcolor': '#ECECF1',
+    'xtick.color': '#ECECF1',
+    'ytick.color': '#ECECF1',
+    'axes.titlecolor': '#FFFFFF'
+})
 
 
 class ModelExplainer:
@@ -117,8 +125,7 @@ class ModelExplainer:
                 sample_data,
                 feature_names=self.feature_names,
                 plot_type="bar",
-                show=False,
-                ax=ax
+                show=False
             )
             
             plt.tight_layout()
@@ -134,8 +141,7 @@ class ModelExplainer:
                 self.shap_values, 
                 sample_data,
                 feature_names=self.feature_names,
-                show=False,
-                ax=ax
+                show=False
             )
             
             # Ensure proper layout
@@ -171,10 +177,15 @@ class ModelExplainer:
                 title="Feature Importance (Mean |SHAP Value|)",
                 labels={'importance': 'Mean |SHAP Value|', 'feature': 'Features'},
                 color='importance',
+                template="plotly_dark",
                 color_continuous_scale='Viridis'
             )
             
-            fig.update_layout(height=600)
+            fig.update_layout(
+                height=600,
+                xaxis=dict(tickfont=dict(color='#ECECF1')),
+                yaxis=dict(tickfont=dict(color='#ECECF1'))
+            )
             st.plotly_chart(fig, use_container_width=True)
             
             return importance_df
@@ -373,7 +384,10 @@ class ModelExplainer:
                 title="Feature Contribution to Prediction (Waterfall)",
                 xaxis_title="Features",
                 yaxis_title="Prediction Value",
-                height=500
+                template="plotly_dark",
+                height=500,
+                xaxis=dict(tickfont=dict(color='#ECECF1')),
+                yaxis=dict(tickfont=dict(color='#ECECF1'))
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -410,6 +424,7 @@ class ModelExplainer:
                 color_continuous_scale='RdBu',
                 title="Feature Contributions (SHAP Values)",
                 labels={'shap_value': 'SHAP Value', 'feature': 'Features'},
+                template="plotly_dark",
                 hover_data=['feature_value']
             )
             
@@ -421,7 +436,11 @@ class ModelExplainer:
                 annotation_text="Base Value"
             )
             
-            fig.update_layout(height=400)
+            fig.update_layout(
+                height=400,
+                xaxis=dict(tickfont=dict(color='#ECECF1')),
+                yaxis=dict(tickfont=dict(color='#ECECF1'))
+            )
             st.plotly_chart(fig, use_container_width=True)
             
         except Exception as e:
@@ -531,9 +550,14 @@ class ModelExplainer:
                     orientation='h',
                     title="Feature-Prediction Correlations",
                     color='Correlation',
+                    template="plotly_dark",
                     color_continuous_scale='RdBu_r'
                 )
                 st.plotly_chart(fig, use_container_width=True)
+                fig.update_layout(
+                    xaxis=dict(tickfont=dict(color='#ECECF1')),
+                    yaxis=dict(tickfont=dict(color='#ECECF1'))
+                )
             
         except Exception as e:
             st.error(f"Error displaying global insights: {str(e)}")
