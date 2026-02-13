@@ -144,48 +144,6 @@ def main():
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
-        
-        # Disable navigation to later steps if previous steps aren't done
-        step1_disable = False
-        step2_disable = not st.session_state.data_loaded
-        step3_disable = not st.session_state.get('preprocessing_complete', False)
-        step4_disable = not st.session_state.model_trained
-        step5_disable = not st.session_state.model_trained
-        
-        selected_page = st.radio(
-            "Go to:",
-            ["1. Upload Data", "2. Target & Analysis", "3. Model Training", "4. Explanations", "5. Deployment & Comparison"],
-            index=st.session_state.step - 1,
-            key="nav_radio"
-        )
-        
-        # Update session state based on selection (if allowed)
-        if selected_page == "1. Upload Data":
-            st.session_state.step = 1
-        elif selected_page == "2. Target & Analysis":
-            if step2_disable:
-                st.warning("Please upload data first.")
-                st.session_state.step = 1
-            else:
-                st.session_state.step = 2
-        elif selected_page == "3. Model Training":
-            if step3_disable:
-                st.warning("Please select target and preprocess data first.")
-                st.session_state.step = 2
-            else:
-                st.session_state.step = 3
-        elif selected_page == "4. Explanations":
-            if step4_disable:
-                st.warning("Please train a model first.")
-                st.session_state.step = 3
-            else:
-                st.session_state.step = 4
-        elif selected_page == "5. Deployment & Comparison":
-             if step5_disable:
-                st.warning("Please train a model first.")
-                st.session_state.step = 3
-             else:
-                st.session_state.step = 5
 
         # Show status
         st.markdown("---")
